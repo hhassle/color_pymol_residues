@@ -184,7 +184,7 @@ def color_residues_by_value(residue_value_dict, prefix, cmap_name="RdYlBu_r",
         print(f"  Value range: {min_val:.4f} to {max_val:.4f}")
         if missing_count > 0:
             print(f"  {missing_count} residues from CSV not found in structure")
-            
+
 def create_rate_legend(cmap_name="RdYlBu_r", min_val=0, max_val=1, 
                        title="Substitution Rate", n_colors=10):
     """
@@ -222,7 +222,8 @@ def create_rate_legend(cmap_name="RdYlBu_r", min_val=0, max_val=1,
 
 def pymol_rate_colors(csv_path, prefix, rate_column='c_rate', 
                       cmap_name="RdYlBu_r", min_val=None, max_val=None,
-                      selection="all", create_legend=False):
+                      selection="all", create_legend=False, binary_mode=False,
+                      threshold=None, low_color="blue", high_color="red"):
     """
     Main function for use in PyMOL to color residues by site rates.
     
@@ -231,15 +232,25 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
     - prefix: Molecule object name (e.g., 'structure').
     - rate_column: Which rate column to use ('rate', 'category', or 'c_rate'). Default: 'c_rate'
     - cmap_name: Name of a matplotlib colormap. Default: 'RdYlBu_r' (red=fast, blue=slow)
-    - min_val: Optional minimum value for normalization.
-    - max_val: Optional maximum value for normalization.
+    - min_val: Optional minimum value for normalization (gradient mode).
+    - max_val: Optional maximum value for normalization (gradient mode).
     - selection: Additional PyMOL selection (e.g., "name CA"). Default: "all"
     - create_legend: Whether to create a visual legend. Default: False
+    - binary_mode: Use two-color mode instead of gradient. Default: False
+    - threshold: Dividing value for binary mode (values < threshold = low_color)
+    - low_color: Color for values below threshold (color name or "R,G,B")
+    - high_color: Color for values above/equal threshold (color name or "R,G,B")
     
     Example usage in PyMOL:
+        # Gradient mode (default)
         pymol_rate_colors buS10_mapping.csv, structure, c_rate
         pymol_rate_colors buS10_mapping.csv, structure, category, viridis
         pymol_rate_colors buS10_mapping.csv, structure, rate, coolwarm, 0, 2
+        
+        # Binary mode (two colors)
+        pymol_rate_colors buS10_mapping.csv, structure, c_rate, , , , , , 1, 1.5, blue, red
+        pymol_rate_colors buS10_mapping.csv, structure, rate, , , , , , 1, 1.0, cyan, magenta
+        pymol_rate_colors buS10_mapping.csv, structure, c_rate, , , , , , 1, 1.5, "0,0,1", "1,0,0"
     """
     if not os.path.isfile(csv_path):
         print(f"✗ File not found: {csv_path}")
@@ -259,8 +270,9 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
     try:
         min_val = float(min_val) if min_val else None
         max_val = float(max_val) if max_val else None
+        threshold = float(threshold) if threshold else None
     except (ValueError, TypeError):
-        print("✗ Invalid min or max value. Please provide numeric values.")
+        print("✗ Invalid min, max, or threshold value. Please provide numeric values.")
         return
 
     # Validate rate column
@@ -270,7 +282,10 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
         return
 
     print(f"\n{'='*70}")
-    print(f"Coloring residues by {rate_column}")
+    if binary_mode:
+        print(f"Binary coloring residues by {rate_column}")
+    else:
+        print(f"Coloring residues by {rate_column}")
     print(f"{'='*70}")
     
     # Load and color residues
@@ -282,10 +297,11 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
     
     print(f"Loaded {len(residue_rates)} residues with {rate_column} values")
     
-    color_residues_by_value(residue_rates, prefix, cmap_name, min_val, max_val, selection)
+    color_residues_by_value(residue_rates, prefix, cmap_name, min_val, max_val, 
+                           selection, binary_mode, threshold, low_color, high_color)
     
     # Create legend if requested
-    if create_legend:
+    if create_legend and not binary_mode:
         actual_min = min_val if min_val is not None else min(residue_rates.values())
         actual_max = max_val if max_val is not None else max(residue_rates.values())
         create_rate_legend(cmap_name, actual_min, actual_max, 
@@ -318,11 +334,33 @@ def color_by_mean_rate(csv_path, prefix):
     pymol_rate_colors(csv_path, prefix, rate_column='rate', 
                      cmap_name='RdYlBu_r')
 
+def color_binary(csv_path, prefix, rate_column='c_rate', threshold=1.5, 
+                low_color="blue", high_color="red"):
+    """
+    Color residues using two colors based on a threshold value.
+    
+    Parameters:
+    - csv_path: Path to CSV file
+    - prefix: Molecule object name
+    - rate_column: Which rate column to use. Default: 'c_rate'
+    - threshold: Dividing value (< threshold = low_color). Default: 1.5
+    - low_color: Color for values below threshold. Default: "blue"
+    - high_color: Color for values >= threshold. Default: "red"
+    
+    Example:
+        color_binary buS10_mapping.csv, structure, c_rate, 1.5, blue, red
+        color_binary buS10_mapping.csv, structure, rate, 1.0, cyan, magenta
+    """
+    pymol_rate_colors(csv_path, prefix, rate_column=rate_column, 
+                     binary_mode=True, threshold=threshold,
+                     low_color=low_color, high_color=high_color)
+
 # Register functions for PyMOL
 cmd.extend("pymol_rate_colors", pymol_rate_colors)
 cmd.extend("color_by_rate_category", color_by_rate_category)
 cmd.extend("color_by_c_rate", color_by_c_rate)
 cmd.extend("color_by_mean_rate", color_by_mean_rate)
+cmd.extend("color_binary", color_binary)
 
 # Print usage instructions when script is loaded
 print("\n" + "="*70)
@@ -333,9 +371,15 @@ print("  pymol_rate_colors CSV_PATH, OBJECT_NAME, RATE_COLUMN, [COLORMAP], [MIN]
 print("  color_by_rate_category CSV_PATH, OBJECT_NAME")
 print("  color_by_c_rate CSV_PATH, OBJECT_NAME")
 print("  color_by_mean_rate CSV_PATH, OBJECT_NAME")
+print("  color_binary CSV_PATH, OBJECT_NAME, RATE_COLUMN, THRESHOLD, LOW_COLOR, HIGH_COLOR")
 print("\nExamples:")
+print("  # Gradient coloring (default)")
 print("  pymol_rate_colors buS10_mapping.csv, testing, c_rate")
 print("  pymol_rate_colors buS10_mapping.csv, testing, category, viridis")
 print("  color_by_c_rate buS10_mapping.csv, testing")
+print("\n  # Binary coloring (two colors with threshold)")
+print("  color_binary buS10_mapping.csv, testing, c_rate, 1.5, blue, red")
+print("  color_binary buS10_mapping.csv, testing, rate, 1.0, cyan, magenta")
 print("\nColormap options: RdYlBu_r (default), viridis, coolwarm, plasma, etc.")
+print("Color options: blue, red, cyan, magenta, yellow, green, orange, etc.")
 print("="*70 + "\n")
