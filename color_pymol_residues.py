@@ -43,10 +43,12 @@ def load_residue_rates_from_csv(csv_path, rate_column='c_rate'):
     return residue_value_dict
 
 def color_residues_by_value(residue_value_dict, prefix, cmap_name="RdYlBu_r", 
-                            min_val=None, max_val=None, selection="all"):
+                            min_val=None, max_val=None, selection="all",
+                            binary_mode=False, threshold=None, 
+                            low_color="blue", high_color="red"):
     """
     Colors residues based on a dictionary of (chain, residue)-to-value mappings 
-    using a color gradient.
+    using either a color gradient or binary coloring.
     
     Parameters:
     - residue_value_dict: Dictionary mapping (chain, residue) tuples to numerical values.
@@ -55,54 +57,134 @@ def color_residues_by_value(residue_value_dict, prefix, cmap_name="RdYlBu_r",
     - min_val: Minimum value for color normalization (optional).
     - max_val: Maximum value for color normalization (optional).
     - selection: Additional selection criteria (e.g., "name CA" to color only CA atoms)
+    - binary_mode: If True, use two colors based on threshold
+    - threshold: Dividing value for binary coloring (values < threshold get low_color)
+    - low_color: Color for values below threshold (color name or RGB tuple)
+    - high_color: Color for values above/equal threshold (color name or RGB tuple)
     """
     if not residue_value_dict:
         print("No residues provided for coloring.")
         return
 
-    # Determine normalization range
-    if min_val is None:
-        min_val = min(residue_value_dict.values())
-    if max_val is None:
-        max_val = max(residue_value_dict.values())
-
-    value_range = max_val - min_val or 1  # Avoid division by zero
-    cmap = plt.get_cmap(cmap_name)
-
     colored_count = 0
     missing_count = 0
+    low_count = 0
+    high_count = 0
     
-    for i, ((chain, residue), value) in enumerate(residue_value_dict.items()):
-        # Normalize value to [0, 1]
-        normalized_value = (value - min_val) / value_range
-        rgb = cmap(normalized_value)[:3]  # ignore alpha
-        color_name = f"rate_color_{i}"
-
-        cmd.set_color(color_name, rgb)
+    if binary_mode:
+        # Binary coloring mode
+        if threshold is None:
+            print("✗ Binary mode requires a threshold value")
+            return
         
-        # Create selection for this specific residue
-        res_selection = f"{prefix} and chain {chain} and resi {residue}"
-        if selection != "all":
-            res_selection += f" and {selection}"
+        # Parse color specifications
+        def parse_color(color_spec):
+            if isinstance(color_spec, str):
+                # Try to parse as RGB tuple string like "(1,0,0)" or "1,0,0"
+                if ',' in color_spec:
+                    color_spec = color_spec.strip('()').strip()
+                    try:
+                        rgb = tuple(float(x.strip()) for x in color_spec.split(','))
+                        if len(rgb) == 3:
+                            return rgb
+                    except ValueError:
+                        pass
+                # Otherwise treat as PyMOL color name
+                return color_spec
+            return color_spec
         
-        atom_count = cmd.count_atoms(res_selection)
+        low_color_parsed = parse_color(low_color)
+        high_color_parsed = parse_color(high_color)
         
-        if atom_count > 0:
-            cmd.color(color_name, res_selection)
-            colored_count += 1
+        # Set up the two colors
+        if isinstance(low_color_parsed, tuple):
+            cmd.set_color("binary_low", low_color_parsed)
+            low_color_name = "binary_low"
         else:
-            missing_count += 1
-            if missing_count <= 5:  # Only print first few missing residues
-                print(f"⚠ Residue not found: chain {chain}, residue {residue}")
-
-    if missing_count > 5:
-        print(f"⚠ ... and {missing_count - 5} more residues not found")
+            low_color_name = low_color_parsed
+            
+        if isinstance(high_color_parsed, tuple):
+            cmd.set_color("binary_high", high_color_parsed)
+            high_color_name = "binary_high"
+        else:
+            high_color_name = high_color_parsed
+        
+        for (chain, residue), value in residue_value_dict.items():
+            # Choose color based on threshold
+            if value < threshold:
+                color_name = low_color_name
+                low_count += 1
+            else:
+                color_name = high_color_name
+                high_count += 1
+            
+            # Create selection for this specific residue
+            res_selection = f"{prefix} and chain {chain} and resi {residue}"
+            if selection != "all":
+                res_selection += f" and {selection}"
+            
+            atom_count = cmd.count_atoms(res_selection)
+            
+            if atom_count > 0:
+                cmd.color(color_name, res_selection)
+                colored_count += 1
+            else:
+                missing_count += 1
+                if missing_count <= 5:
+                    print(f"⚠ Residue not found: chain {chain}, residue {residue}")
+        
+        if missing_count > 5:
+            print(f"⚠ ... and {missing_count - 5} more residues not found")
+        
+        print(f"\n✓ Colored {colored_count} residues using binary coloring.")
+        print(f"  Threshold: {threshold}")
+        print(f"  {low_count} residues < {threshold} ({low_color_name})")
+        print(f"  {high_count} residues ≥ {threshold} ({high_color_name})")
+        if missing_count > 0:
+            print(f"  {missing_count} residues from CSV not found in structure")
     
-    print(f"\n✓ Colored {colored_count} residues using the '{cmap_name}' colormap.")
-    print(f"  Value range: {min_val:.4f} to {max_val:.4f}")
-    if missing_count > 0:
-        print(f"  {missing_count} residues from CSV not found in structure")
+    else:
+        # Gradient coloring mode (original behavior)
+        # Determine normalization range
+        if min_val is None:
+            min_val = min(residue_value_dict.values())
+        if max_val is None:
+            max_val = max(residue_value_dict.values())
 
+        value_range = max_val - min_val or 1  # Avoid division by zero
+        cmap = plt.get_cmap(cmap_name)
+        
+        for i, ((chain, residue), value) in enumerate(residue_value_dict.items()):
+            # Normalize value to [0, 1]
+            normalized_value = (value - min_val) / value_range
+            rgb = cmap(normalized_value)[:3]  # ignore alpha
+            color_name = f"rate_color_{i}"
+
+            cmd.set_color(color_name, rgb)
+            
+            # Create selection for this specific residue
+            res_selection = f"{prefix} and chain {chain} and resi {residue}"
+            if selection != "all":
+                res_selection += f" and {selection}"
+            
+            atom_count = cmd.count_atoms(res_selection)
+            
+            if atom_count > 0:
+                cmd.color(color_name, res_selection)
+                colored_count += 1
+            else:
+                missing_count += 1
+                if missing_count <= 5:  # Only print first few missing residues
+                    print(f"⚠ Residue not found: chain {chain}, residue {residue}")
+
+        if missing_count > 5:
+            print(f"⚠ ... and {missing_count - 5} more residues not found")
+        
+        print(f"\n✓ Colored {colored_count} residues using the '{cmap_name}' colormap.")
+        print(f"  Value range: {min_val:.4f} to {max_val:.4f}")
+        if missing_count > 0:
+            print(f"  {missing_count} residues from CSV not found in structure")
+            
 def create_rate_legend(cmap_name="RdYlBu_r", min_val=0, max_val=1, 
                        title="Substitution Rate", n_colors=10):
     """
