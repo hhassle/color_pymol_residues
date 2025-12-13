@@ -10,7 +10,7 @@ def load_residue_rates_from_csv(csv_path, rate_column='c_rate'):
 
     Parameters:
     - csv_path: Path to the CSV file
-    - rate_column: Which column to use for values ('rate', 'category', or 'c_rate')
+    - rate_column: Which column to use for values ('rate', 'category', 'binary', or 'c_rate')
 
     Returns:
     - A dictionary mapping (chain, residue) tuples to numerical values.
@@ -230,7 +230,7 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
     Parameters:
     - csv_path: Path to CSV file with 'chain', 'residue', and rate columns.
     - prefix: Molecule object name (e.g., 'structure').
-    - rate_column: Which rate column to use ('rate', 'category', or 'c_rate'). Default: 'c_rate'
+    - rate_column: Which rate column to use ('rate', 'category', 'binary', or 'c_rate'). Default: 'c_rate'
     - cmap_name: Name of a matplotlib colormap. Default: 'RdYlBu_r' (red=fast, blue=slow)
     - min_val: Optional minimum value for normalization (gradient mode).
     - max_val: Optional maximum value for normalization (gradient mode).
@@ -276,7 +276,7 @@ def pymol_rate_colors(csv_path, prefix, rate_column='c_rate',
         return
 
     # Validate rate column
-    valid_columns = ['rate', 'category', 'c_rate']
+    valid_columns = ['rate', 'category', 'c_rate', 'binary']
     if rate_column not in valid_columns:
         print(f"✗ Invalid rate column '{rate_column}'. Must be one of: {valid_columns}")
         return
